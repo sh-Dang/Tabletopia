@@ -1,7 +1,7 @@
 package com.tabletopia.restaurantservice.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-
+import com.tabletopia.restaurantservice.exception.CustomAuthenticationEntryPoint;
 import com.tabletopia.restaurantservice.filter.JwtRequestFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -10,10 +10,12 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,6 +24,7 @@ import org.springframework.security.web.authentication.AuthenticationFailureHand
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -33,53 +36,84 @@ import org.springframework.security.authentication.dao.DaoAuthenticationProvider
 
 
 /**
- * 스프링 시큐리티의 설정 Bean입니다
+ * Spring Security 전체 설정을 담당하는 Config 클래스
+ * - Admin: 세션 기반 로그인
+ * - User: JWT 기반 인증
  *
  * @author 이세형
- * @since 2025-09-27
- *
+ * @since 2025-12-06
  */
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    // JWT 필터 (User 인증용)
     private final JwtRequestFilter jwtRequestFilter;
+    // JSON응답을 위한 Object mapper
     private final ObjectMapper objectMapper;
+    // Admin 인증용 UserDetailsService
     private final AdminDetailsService adminDetailsService;
+    // User 인증용 UserDetailsService
     private final CustomUserDetailsService customUserDetailsService;
+    // 인증 실패 시 동작할 Custom EntryPoint
+    private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
 
+    /**
+     * 비밀번호 암호화를 위한 Encoder Bean
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
+    /**
+     * Admin 로그인을 위한 DaoAuthenticationProvider 설정
+     */
     @Bean
     public DaoAuthenticationProvider adminAuthenticationProvider() {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
         provider.setUserDetailsService(adminDetailsService);
-        provider.setPasswordEncoder(passwordEncoder()); // Use the bean directly
+        provider.setPasswordEncoder(passwordEncoder());
         return provider;
     }
 
+    /**
+     * User(JWT) 로그인을 위한 DaoAuthenticationProvider 설정
+     */
     @Bean
     public DaoAuthenticationProvider userAuthenticationProvider() {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
         provider.setUserDetailsService(customUserDetailsService);
-        provider.setPasswordEncoder(passwordEncoder()); // Use the bean directly
+        provider.setPasswordEncoder(passwordEncoder());
         return provider;
     }
 
+//    @Bean
+//    public AuthenticationManager authenticationManager(
+//            AuthenticationConfiguration authenticationConfiguration,
+//            HttpSecurity http
+//    ) throws Exception {
+//        AuthenticationManagerBuilder authenticationManagerBuilder = http.getSharedObject(AuthenticationManagerBuilder.class);
+//        authenticationManagerBuilder
+//                .authenticationProvider(adminAuthenticationProvider())
+//                .authenticationProvider(userAuthenticationProvider());
+//        return authenticationManagerBuilder.build();
+//    }
+    /**
+     * AuthenticationManager - 두 개의 Provider를 등록
+     * HttpSecurity에서 가져오지 말고 독립적으로 생성
+     *
+     * @since 2025-12-09
+     */
     @Bean
-    public AuthenticationManager authenticationManager(
-            AuthenticationConfiguration authenticationConfiguration,
-            HttpSecurity http
-    ) throws Exception {
-        AuthenticationManagerBuilder authenticationManagerBuilder = http.getSharedObject(AuthenticationManagerBuilder.class);
-        authenticationManagerBuilder
-                .authenticationProvider(adminAuthenticationProvider())
-                .authenticationProvider(userAuthenticationProvider());
-        return authenticationManagerBuilder.build();
+    public AuthenticationManager authenticationManager() {
+        return new ProviderManager(
+                Arrays.asList(
+                        adminAuthenticationProvider(),
+                        userAuthenticationProvider()
+                )
+        );
     }
 
     /**
@@ -94,6 +128,16 @@ public class SecurityConfig {
     @Order(1)
     public SecurityFilterChain adminFilterChain(HttpSecurity http) throws Exception {
         http
+//                .formLogin(form -> form
+//                    .loginProcessingUrl("/api/admin/auth/login")
+//                    .successHandler(adminAuthenticationSuccessHandler())
+//                    .failureHandler(adminAuthenticationFailureHandler())
+//                )
+                // authentication provider를 명시적으로 각각 설정
+                .authenticationProvider(adminAuthenticationProvider())
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                // CORS 설정
                 .cors(cors -> cors.configurationSource(request -> {
                     var config = new org.springframework.web.cors.CorsConfiguration();
                     config.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:3000")); // 프론트 주소
@@ -129,6 +173,7 @@ public class SecurityConfig {
               // 기타 관리자 API — ADMIN 이상 접근 가능
               .anyRequest().hasAnyRole("ADMIN", "SUPERADMIN")
           )
+        // Session 기반 인증 사용
           .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
           .securityContext(ctx -> ctx.requireExplicitSave(false));
 
@@ -149,6 +194,7 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
         http
+                .authenticationProvider(userAuthenticationProvider())
                 .securityMatcher("/api/user/**", "/api/chat/**")
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(request -> {
@@ -157,6 +203,7 @@ public class SecurityConfig {
                     config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
                     config.setAllowCredentials(true);
                     config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+                    config.setExposedHeaders(List.of("Set-Cookie"));
                     return config;
                 }))
                 .authorizeHttpRequests(authorize -> authorize
@@ -177,6 +224,7 @@ public class SecurityConfig {
 
                         .anyRequest().authenticated()
                 )
+                .exceptionHandling(e -> e.authenticationEntryPoint(customAuthenticationEntryPoint))
                 .httpBasic(httpBasic -> httpBasic.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
@@ -210,23 +258,5 @@ public class SecurityConfig {
                 );
 
         return http.build();
-    }
-
-    private AuthenticationSuccessHandler adminAuthenticationSuccessHandler() {
-        return (request, response, authentication) -> {
-            response.setContentType("application/json");
-            response.setCharacterEncoding("UTF-8");
-            response.setStatus(HttpServletResponse.SC_OK);
-            response.getWriter().write(objectMapper.writeValueAsString(Map.of("success", true, "message", "Admin login successful")));
-        };
-    }
-
-    private AuthenticationFailureHandler adminAuthenticationFailureHandler() {
-        return (request, response, exception) -> {
-            response.setContentType("application/json");
-            response.setCharacterEncoding("UTF-8");
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write(objectMapper.writeValueAsString(Map.of("success", false, "message", "Admin login failed: " + exception.getMessage())));
-        };
     }
 }
