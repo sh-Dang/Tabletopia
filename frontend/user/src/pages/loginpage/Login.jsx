@@ -118,11 +118,11 @@ const Login = () => {
 
         try {
             // 백엔드에 로그인 API 요청
-            const response = await userApi.post('/api/user/auth/login', {
+            const response = await userApi.post('http://restaurant-backend:8080/api/user/auth/register', {
                 email: fullEmail,
                 password: formData.password
             });
-            
+
             const data = response.data;
             
             // 로그인 성공 시 accessToken 저장

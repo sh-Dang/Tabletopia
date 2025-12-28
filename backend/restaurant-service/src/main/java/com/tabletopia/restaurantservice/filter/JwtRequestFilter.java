@@ -122,4 +122,15 @@ public class JwtRequestFilter extends OncePerRequestFilter {
         // 다음 필터 체인 실행
         chain.doFilter(request, response);
     }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+
+        return path.startsWith("/api/user/auth/")
+                || path.startsWith("/api/user/restaurants/")
+                || path.startsWith("/api/user/categories/")
+                || path.startsWith("/api/user/facilities/")
+                || path.equals("/api/user/waiting/status");
+    }
 }
