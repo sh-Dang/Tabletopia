@@ -1,17 +1,15 @@
-# 1단계: 빌드
-FROM node:20-alpine AS builder
+FROM node:20-alpine AS build
 WORKDIR /app
 
-COPY user/package*.json ./user/
-WORKDIR /app/user
+RUN apk add --no-cache python3 g++ make
+
+COPY package*.json ./
 RUN npm install
 
-COPY user/ /app/user/
-
+COPY . .
 RUN npm run build
 
-# 2단계: nginx 서빙
 FROM nginx:alpine
-COPY --from=builder /app/user/dist /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

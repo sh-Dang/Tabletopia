@@ -5,10 +5,12 @@ services:
   # user front
   #============
   frontend-user:
-    build: ./frontend/user # 해당 디렉토리의 Dockerfile로 이미지 빌드
+    build:
+      context: ./frontend   # 빌드 기준점을 최상위 폴더로 변경
+      dockerfile: user/Dockerfile  # Dockerfile 위치 지정
     container_name: tabletopia-frontend-user
     ports:
-      - "3000:3000" #호스트 5173 포트를 컨테이너 5173포트에 바인딩
+      - "3000:80" #호스트 3000 포트를 컨테이너 80포트에 바인딩
       # [호스트포트:컨테이너포트]
       #
       # 컨테이너는 호스트와 분리된 네트워크 네임스페이스를 가진다.
@@ -24,7 +26,9 @@ services:
   # admin frontend
   # ======================
   frontend-admin:
-    build: ./frontend/admin  # ./frontend/admin 디렉토리의 Dockerfile로 이미지 빌드
+    build:
+      context: ./frontend # 빌드 기준점을 최상위 폴더로 변경
+      dockerfile: admin/Dockerfile  # ./frontend/admin 디렉토리의 Dockerfile로 이미지 빌드
     container_name: tabletopia-frontend-admin
     ports:
       - "5173:5173"          # 호스트 5173 → 컨테이너 내부 5173
@@ -38,7 +42,7 @@ services:
   # 백엔드 (Spring Boot)
   # ======================
   backend:
-    build: ./backend         # ./backend 디렉토리 기준으로 이미지 빌드
+    build: ./backend/restaurant-service        # ./backend 디렉토리 기준으로 이미지 빌드
     container_name: tabletopia-backend
     ports:
       - "8002:8080"          # 호스트와 컨테이너의 8080 포트 매핑
@@ -46,17 +50,20 @@ services:
       - mysql                # DB 컨테이너 의존
       - redis-master         # Redis의존
       - redis-sentinel1     # Redis의존
+    restart: always  # 접속 실패 시 자동으로 다시 시작하게 설정
     environment:
       # MySQL 접속 호스트명 (docker-compose 서비스명)
       DB_HOST: mysql
       DB_PORT: 3306
       DB_NAME: tabletopia
       DB_USER: root
-      DB_PASSWORD: ${DB_PASSWORD}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
 
+      # JWT & OpenAI (추가된 부분)
+      JWT_SECRET: ${JWT_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       # Redis Sentinel 접속 정보
-      REDIS_SENTINEL_HOST: redis-sentinel
-      REDIS_SENTINEL_PORT: 26379
+      REDIS_SENTINEL_HOSTS: redis-sentinel1:26379,redis-sentinel2:26379,redis-sentinel3:26379
       REDIS_MASTER_NAME: mymaster
 
   # ======================
