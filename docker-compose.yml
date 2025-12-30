@@ -1,88 +1,166 @@
-version: '3.8'
+version: "3.8" # Docker Compose 파일 포맷 버전
 
 services:
-  # MySQL Database
-  mysql:
-    image: mysql:8.0
-    container_name: restaurant-mysql
-#    command:
-#      - --character-set-server=utf8mb4
-#      - --collation-server=utf8mb4_unicode_ci
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: tabletopia
-      MYSQL_USER: user
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./mysql-config:/etc/mysql/conf.d
-    restart: unless-stopped
-    networks:
-      - tabletopia-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: restaurant-redis
-    ports:
-      - "6381:6379"
-    restart: unless-stopped
-    networks:
-      - tabletopia-network
-
-  # Backend - Restaurant Service
-  backend:
-    build:
-      context: ./backend/restaurant-service
-      dockerfile: Dockerfile
-    container_name: restaurant-backend
-    ports:
-      - "8002:8080"
-    depends_on:
-      - mysql
-      - redis
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/tabletopia
-      SPRING_DATASOURCE_USERNAME: user
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      PAYMENT_FRONTEND_URL: http://223.130.138.158:3000
-    volumes:
-      - upload-data:/app/uploads
-    restart: unless-stopped
-    networks:
-      - tabletopia-network
-
-  # Frontend - Admin
-  frontend-admin:
-    build:
-      context: ./frontend
-      dockerfile: admin/Dockerfile
-    container_name: restaurant-admin
-    ports:
-      - "5173:80"
-    restart: unless-stopped
-    networks:
-      - tabletopia-network
-
-  # Frontend - User
+  #============
+  # user front
+  #============
   frontend-user:
-    build:
-      context: ./frontend
-      dockerfile: user/Dockerfile
-    container_name: restaurant-user
+    build: ./frontend/user # 해당 디렉토리의 Dockerfile로 이미지 빌드
+    container_name: tabletopia-frontend-user
     ports:
-      - "3000:80"
-    restart: unless-stopped
-    networks:
-      - tabletopia-network
+      - "3000:3000" #호스트 5173 포트를 컨테이너 5173포트에 바인딩
+      # [호스트포트:컨테이너포트]
+      #
+      # 컨테이너는 호스트와 분리된 네트워크 네임스페이스를 가진다.
+      # 호스트(브라우저)에서 접근하는 3000포트를 Dokcer 환경내의 3000포트와 이어준다고 명시하는 코드
+    depends_on:
+      - backend #backend 컨테이너가 먼저 생성된 후 실행
+    environment:
+      # 프론트엔드에서 API 요청 시 사용할 백엔드 주소
+      # docker-compose 네트원크 내부에서는 서비스 명으로 접근
+      - VITE_API_BASE_URL=http://backend:8080
 
-networks:
-  tabletopia-network:
-    driver: bridge
+  # ======================
+  # admin frontend
+  # ======================
+  frontend-admin:
+    build: ./frontend/admin  # ./frontend/admin 디렉토리의 Dockerfile로 이미지 빌드
+    container_name: tabletopia-frontend-admin
+    ports:
+      - "5173:5173"          # 호스트 5173 → 컨테이너 내부 5173
+    depends_on:
+      - backend
+    environment:
+      # 사용자/관리자 프론트엔드가 동일한 백엔드를 바라보도록 설정
+      - VITE_API_BASE_URL=http://backend:8080
 
+  # ======================
+  # 백엔드 (Spring Boot)
+  # ======================
+  backend:
+    build: ./backend         # ./backend 디렉토리 기준으로 이미지 빌드
+    container_name: tabletopia-backend
+    ports:
+      - "8002:8080"          # 호스트와 컨테이너의 8080 포트 매핑
+    depends_on:
+      - mysql                # DB 컨테이너 의존
+      - redis-master         # Redis의존
+      - redis-sentinel1     # Redis의존
+    environment:
+      # MySQL 접속 호스트명 (docker-compose 서비스명)
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: tabletopia
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD}
+
+      # Redis Sentinel 접속 정보
+      REDIS_SENTINEL_HOST: redis-sentinel
+      REDIS_SENTINEL_PORT: 26379
+      REDIS_MASTER_NAME: mymaster
+
+  # ======================
+  # MySQL 데이터베이스
+  # ======================
+  mysql:
+    image: mysql:8.0         # 공식 MySQL 8.0 이미지 사용
+    container_name: mysql   # 컨테이너 이름 명시 (네트워크 접근용)
+    volumes:
+      # MySQL 데이터 영속화를 위한 named volume
+      - mysql-data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}  # root 계정 비밀번호
+      MYSQL_DATABASE: tabletopia      # 초기 생성 DB 이름
+    ports:
+      - "3306:3306"          # 로컬에서 DB 접속 가능하도록 포트 오픈
+    # UTF-8 설정으로 한글이 깨지지 않도록 함
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --skip-character-set-client-handshake
+
+
+  # ======================
+  # Redis Master 노드
+  # ======================
+  redis-master:
+    image: redis:7
+    # 사용자 정의 Redis 설정 파일로 Master 서버 실행
+    container_name: redis-master
+    command: >
+      redis-server
+      -- port 6379
+      -- bind 0.0.0.0
+      -- protected-mode no
+    ports:
+      - "6379:6379"
+  #    volumes:
+  #      # Redis Master 설정 파일 마운트
+  #      - ./infra/redis/redis-master.conf:/etc/redis/redis-master.conf
+
+  # ======================
+  # Redis Replica (Slave) 노드
+  # ======================
+  redis-replica:
+    image: redis:7
+    container_name: redis-replica
+    command: >
+      redis-server
+      --port 6379
+      --bind 0.0.0.0
+      --protected-mode no
+      --replicaof redis-master 6379
+    depends_on:
+      - redis-master          # redis-master가 먼저 실행되어야 함
+    ports:
+      - "6380:6379"
+
+  # ======================
+  # Redis Sentinel1,2,3
+  # ======================
+  redis-sentinel1:
+    image: redis:7
+    # Sentinel 모드로 실행
+    container_name: redis-sentinel1
+    command: redis-sentinel /etc/redis/sentinel.conf
+    depends_on:
+      - redis-master
+      - redis-replica
+    volumes:
+      # Sentinel 설정 파일
+      - ./infra/redis/sentinel1/sentinel.conf:/etc/redis/sentinel.conf
+
+    ports:
+      - "26379:26379"        # Sentinel 모니터링 포트
+  redis-sentinel2:
+    image: redis:7
+    container_name: redis-sentinel2
+    command: redis-sentinel /etc/redis/sentinel.conf
+    depends_on:
+      - redis-master
+      - redis-replica
+    ports:
+      - "26380:26379"        # Sentinel 모니터링 포트
+    volumes:
+    # Sentinel 설정 파일
+      - ./infra/redis/sentinel2/sentinel.conf:/etc/redis/sentinel.conf
+
+  redis-sentinel3:
+    image: redis:7
+    container_name: redis-sentinel3
+    command: redis-sentinel /etc/redis/sentinel.conf
+    depends_on:
+      - redis-master
+      - redis-replica
+    ports:
+      - "26381:26379"        # Sentinel 모니터링 포트
+    volumes:
+      # Sentinel 설정 파일
+      - ./infra/redis/sentinel3/sentinel.conf:/etc/redis/sentinel.conf
+
+# ======================
+# Named Volume 정의
+# ======================
 volumes:
-  mysql-data:
-  upload-data:
+  mysql-data:                # MySQL 데이터 영속 저장소

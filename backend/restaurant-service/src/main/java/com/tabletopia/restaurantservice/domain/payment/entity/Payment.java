@@ -44,7 +44,7 @@ public class Payment {
 //    private Reservation reservation;
 
     /** 결제수단 (CARD, KAKAO_PAY 등) */
-    @Column(name = "pay_method", nullable = false, length = 50)
+    @Column(name = "payment_method", nullable = false, length = 50)
     private String payMethod;
 
     /** 결제금액 */
