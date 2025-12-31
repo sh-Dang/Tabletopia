@@ -1,17 +1,20 @@
-# 1️⃣ build stage
 FROM node:20-alpine AS build
-WORKDIR /app
 
-# package.json만 복사
-COPY package*.json ./
+RUN apk add --no-cache python3 g++ make
+
+# frontend 전체 구조 복사
+WORKDIR /app/frontend
+COPY admin/ ./admin/
+COPY user/ ./user/
+
+# admin 디렉토리로 이동
+WORKDIR /app/frontend/admin
+
+# 설치 및 빌드
 RUN npm install
-
-# admin 전체 코드 복사 (컨텍스트 기준)
-COPY . .
 RUN npm run build
 
-# 2️⃣ run stage
 FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/frontend/admin/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

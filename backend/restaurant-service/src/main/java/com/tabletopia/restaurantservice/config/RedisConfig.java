@@ -13,6 +13,10 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.data.redis.connection.RedisPassword;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
+import java.time.Duration;
+
 
 /**
  * Redis 설정
@@ -23,52 +27,96 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @Configuration
 public class RedisConfig {
 
-    // Redis Sentinel 구성을 위해 프로퍼티에서 불러오는 마스터 이름
+    /**
+     * Sentinel Master 이름
+     * - Sentinel이 관리하는 Redis Master의 논리적 이름
+     * - 실제 host/port가 아니라 Sentinel 내부에서 사용하는 식별자
+     */
     @Value("${spring.data.redis.sentinel.master}")
     private String sentinelMaster;
 
-    // Sentinel 노드 목록(호스트:포트 형태의 콤마 구분 문자열)
+    /**
+     * Sentinel 노드 목록
+     * - "host:port,host:port,..." 형식
+     * - Master 장애 시 Sentinel 쿼리를 위해 사용
+     */
     @Value("${spring.data.redis.sentinel.nodes}")
     private String sentinelNodes;
 
     /**
-     * Redis Sentinel 기반의 RedisConnectionFactory Bean생성
-     * <p>Sentinel을 사용하거나 커스텀 설정을 적용하려면 직접 Bean으로 재정의해야 함<br>
-     * 주요 역할:</p>
+     * Redis 인증 비밀번호
+     * - requirepass / masterauth 값과 반드시 일치해야 함
+     * - Sentinel을 통해 발견된 Master/Replica 접속 시 AUTH에 사용
+     */
+    @Value("${spring.data.redis.password}")
+    private String redisPassword;
+
+    /**
+     * Redis Sentinel 기반 RedisConnectionFactory Bean
+     *
+     * <p>Spring Boot의 자동 설정을 사용하지 않고 직접 Bean으로 재정의하는 이유:</p>
      * <ul>
-     *   <li>Sentinel master 이름을 기반으로 RedisSentinelConfiguration을 구성한다.</li>
-     *   <li>프로퍼티에서 정의된 sentinel 노드를 파싱하여 SentinelConfig에 추가한다.</li>
-     *   <li>LettuceConnectionFactory를 Sentinel 기반으로 초기화하여 Redis 장애 시 자동 Failover를 지원한다.</li>
+     *   <li>Redis Sentinel + AUTH 환경에서 인증 누락 문제를 방지하기 위함</li>
+     *   <li>Lettuce 프로토콜 버전(RESP2/RESP3)을 명시적으로 제어하기 위함</li>
+     *   <li>Master Failover 시 인증 포함 재연결을 보장하기 위함</li>
      * </ul>
      *
-     * @author 이세형
-     * @return LettuceConnectionFactory 인스턴스(스프링 내 RedisTemplate 등의 비즈니스 레이어에서 사용)
-     * @since 2025-12-11
+     * @return Sentinel 기반 LettuceConnectionFactory
      */
     @Bean
     public RedisConnectionFactory redisConnectionFactory() {
-        // Sentinel 설정 객체 생성, master 이름 설정
-        RedisSentinelConfiguration sentinelConfig = new RedisSentinelConfiguration()
-                .master(sentinelMaster);
 
-        // spring.data.redis.sentinel.nodes 값 파싱 ("host:port" 형태)
-        String[] nodes = sentinelNodes.split(",");
-        for (String node : nodes) {
-            // hostname과 port를 분리
+        /* =========================
+         * 1. Sentinel 설정 구성
+         * ========================= */
+
+        // Sentinel Master 이름 설정
+        RedisSentinelConfiguration sentinelConfig =
+                new RedisSentinelConfiguration().master(sentinelMaster);
+
+        // Sentinel 노드(host:port) 파싱 후 등록
+        for (String node : sentinelNodes.split(",")) {
             String[] parts = node.trim().split(":");
-            String host =  parts[0];
+            String host = parts[0];
             int port = Integer.parseInt(parts[1]);
 
-            // Sentinel 노드 등록
             sentinelConfig.sentinel(host, port);
         }
 
-        // Lettuce 기반 Sentinel 커넥션 팩토리 생성
-        LettuceConnectionFactory factory = new LettuceConnectionFactory(sentinelConfig);
-        // 내부 속성 초기화
-        factory.afterPropertiesSet();
-        // 스프링이 IoC 컨테이너에서 주입 가능한 Bean으로 사용하게 반환
-        return factory;
+        /**
+         * Redis Master / Replica 인증 비밀번호 설정
+         *
+         * - Sentinel은 보통 인증이 없으므로 통과하지만
+         * - Sentinel이 반환한 Master에 접속할 때 이 비밀번호가 사용됨
+         * - 이 설정이 없으면 HELLO만 나가고 AUTH가 누락되어 NOAUTH 발생
+         */
+        sentinelConfig.setPassword(RedisPassword.of(redisPassword));
+
+        /* =========================
+         * 2. Lettuce Client 설정
+         * ========================= */
+
+        LettuceClientConfiguration clientConfig =
+                LettuceClientConfiguration.builder()
+                        /**
+                         * Redis 명령 타임아웃
+                         * - 네트워크 장애나 Failover 상황에서
+                         *   무한 대기 방지
+                         */
+                        .commandTimeout(Duration.ofSeconds(3))
+                        .shutdownTimeout(Duration.ZERO)
+                        .build();
+
+        /* =========================
+         * 3. ConnectionFactory 생성
+         * ========================= */
+
+        /**
+         * Sentinel + Lettuce 설정을 결합한 ConnectionFactory
+         * - Master 장애 시 Sentinel을 통해 새 Master 탐지
+         * - 인증 정보를 포함하여 자동 재연결 수행
+         */
+        return new LettuceConnectionFactory(sentinelConfig, clientConfig);
     }
 
   /**

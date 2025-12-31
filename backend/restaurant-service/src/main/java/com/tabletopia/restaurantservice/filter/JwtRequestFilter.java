@@ -59,8 +59,9 @@ public class JwtRequestFilter extends OncePerRequestFilter {
 
         // Header 먼저 체크하고 없으면 바로 리턴
         // JWT 없으면 예외 터뜨리지 않고 그냥 인증 실패 처리
-        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
-            log.debug("No valid Authorization header - continuing without authentication");
+        if (authorizationHeader == null
+                || !authorizationHeader.startsWith("Bearer ")
+                || authorizationHeader.length() <= 7) {
             chain.doFilter(request, response);
             return;
         }
