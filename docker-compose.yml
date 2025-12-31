@@ -14,12 +14,12 @@ services:
       # [호스트포트:컨테이너포트]
       #
       # 컨테이너는 호스트와 분리된 네트워크 네임스페이스를 가진다.
-      # 호스트(브라우저)에서 접근하는 3000포트를 Dokcer 환경내의 3000포트와 이어준다고 명시하는 코드
+      # 호스트(브라우저)에서 접근하는 3000포트를 Docker 환경내의 3000포트와 이어준다고 명시하는 코드
     depends_on:
       - backend #backend 컨테이너가 먼저 생성된 후 실행
     environment:
       # 프론트엔드에서 API 요청 시 사용할 백엔드 주소
-      # docker-compose 네트원크 내부에서는 서비스 명으로 접근
+      # docker-compose 네트워크 내부에서는 서비스 명으로 접근
       - VITE_API_BASE_URL=http://backend:8080
 
   # ======================
@@ -31,7 +31,7 @@ services:
       dockerfile: admin/Dockerfile  # ./frontend/admin 디렉토리의 Dockerfile로 이미지 빌드
     container_name: tabletopia-frontend-admin
     ports:
-      - "5173:5173"          # 호스트 5173 → 컨테이너 내부 5173
+      - "5173:80"          # 호스트 5173 → 컨테이너 내부 80
     depends_on:
       - backend
     environment:
