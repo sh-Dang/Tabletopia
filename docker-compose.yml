@@ -21,6 +21,8 @@ services:
       # 프론트엔드에서 API 요청 시 사용할 백엔드 주소
       # docker-compose 네트워크 내부에서는 서비스 명으로 접근
       - VITE_API_BASE_URL=http://backend:8080
+    networks:
+      - tabletopia-network
 
   # ======================
   # admin frontend
@@ -37,6 +39,8 @@ services:
     environment:
       # 사용자/관리자 프론트엔드가 동일한 백엔드를 바라보도록 설정
       - VITE_API_BASE_URL=http://backend:8080
+    networks:
+      - tabletopia-network
 
   # ======================
   # 백엔드 (Spring Boot)
@@ -63,8 +67,11 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       # Redis Sentinel 접속 정보
-      REDIS_SENTINEL_HOSTS: redis-sentinel1:26379,redis-sentinel2:26379,redis-sentinel3:26379
-      REDIS_MASTER_NAME: mymaster
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SPRING_DATA_REDIS_SENTINEL_MASTER: mymaster
+      SPRING_DATA_REDIS_SENTINEL_NODES: redis-sentinel1:26379,redis-sentinel2:26379,redis-sentinel3:26379
+    networks:
+      - tabletopia-network
 
   # ======================
   # MySQL 데이터베이스
@@ -86,6 +93,8 @@ services:
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
       --skip-character-set-client-handshake
+    networks:
+      - tabletopia-network
 
 
   # ======================
@@ -95,33 +104,28 @@ services:
     image: redis:7
     # 사용자 정의 Redis 설정 파일로 Master 서버 실행
     container_name: redis-master
-    command: >
-      redis-server
-      -- port 6379
-      -- bind 0.0.0.0
-      -- protected-mode no
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - ./infra/redis/master/redis.conf:/etc/redis/redis.conf
     ports:
       - "6379:6379"
-  #    volumes:
-  #      # Redis Master 설정 파일 마운트
-  #      - ./infra/redis/redis-master.conf:/etc/redis/redis-master.conf
-
+    networks:
+      - tabletopia-network
   # ======================
   # Redis Replica (Slave) 노드
   # ======================
   redis-replica:
     image: redis:7
     container_name: redis-replica
-    command: >
-      redis-server
-      --port 6379
-      --bind 0.0.0.0
-      --protected-mode no
-      --replicaof redis-master 6379
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - ./infra/redis/replica/redis.conf:/etc/redis/redis.conf
     depends_on:
-      - redis-master          # redis-master가 먼저 실행되어야 함
+      - redis-master
     ports:
       - "6380:6379"
+    networks:
+      - tabletopia-network
 
   # ======================
   # Redis Sentinel1,2,3
@@ -137,9 +141,11 @@ services:
     volumes:
       # Sentinel 설정 파일
       - ./infra/redis/sentinel1/sentinel.conf:/etc/redis/sentinel.conf
-
     ports:
       - "26379:26379"        # Sentinel 모니터링 포트
+    networks:
+      - tabletopia-network
+
   redis-sentinel2:
     image: redis:7
     container_name: redis-sentinel2
@@ -152,6 +158,8 @@ services:
     volumes:
     # Sentinel 설정 파일
       - ./infra/redis/sentinel2/sentinel.conf:/etc/redis/sentinel.conf
+    networks:
+      - tabletopia-network
 
   redis-sentinel3:
     image: redis:7
@@ -165,9 +173,18 @@ services:
     volumes:
       # Sentinel 설정 파일
       - ./infra/redis/sentinel3/sentinel.conf:/etc/redis/sentinel.conf
+    networks:
+      - tabletopia-network
 
 # ======================
 # Named Volume 정의
 # ======================
 volumes:
   mysql-data:                # MySQL 데이터 영속 저장소
+
+  # ====================
+  # 네트워크 정의 (파일 맨 아래에 추가)
+  # ====================
+networks:
+  tabletopia-network:
+    driver: bridge

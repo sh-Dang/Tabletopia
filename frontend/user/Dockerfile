@@ -3,10 +3,8 @@ WORKDIR /app
 
 RUN apk add --no-cache python3 g++ make
 
-COPY package*.json ./
+COPY user/ .
 RUN npm install
-
-COPY . .
 RUN npm run build
 
 FROM nginx:alpine
