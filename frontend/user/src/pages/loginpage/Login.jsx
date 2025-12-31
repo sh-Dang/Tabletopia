@@ -118,7 +118,7 @@ const Login = () => {
 
         try {
             // 백엔드에 로그인 API 요청
-            const response = await userApi.post('http://restaurant-backend:8080/api/user/auth/login', {
+            const response = await userApi.post('http://localhost:8002/api/user/auth/login', {
                 email: fullEmail,
                 password: formData.password
             });
