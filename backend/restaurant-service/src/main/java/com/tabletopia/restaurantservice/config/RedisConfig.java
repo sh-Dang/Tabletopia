@@ -62,6 +62,8 @@ public class RedisConfig {
      * </ul>
      *
      * @return Sentinel 기반 LettuceConnectionFactory
+     * @author 이세형
+     * @since 2025/12/31
      */
     @Bean
     public RedisConnectionFactory redisConnectionFactory() {
