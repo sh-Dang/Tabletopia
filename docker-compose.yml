@@ -183,7 +183,7 @@ volumes:
   mysql-data:                # MySQL 데이터 영속 저장소
 
   # ====================
-  # 네트워크 정의 (파일 맨 아래에 추가)
+  # 네트워크 정의
   # ====================
 networks:
   tabletopia-network:
