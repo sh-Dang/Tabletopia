@@ -140,6 +140,19 @@ public class UserController {
     }
 
     /**
+     * 현재 요청의 JWT 토큰이 유효한지 검증하는 메서드
+     * 요청을 보내보고 유효한지 판단한다.
+     *
+     * @author 이세형
+     * @since 2026-01-05
+     */
+    @GetMapping("/auth/validate")
+    public ResponseEntity<Map<String, Object>> validateToken() {
+        log.debug("Token validation check successful.");
+        return ResponseEntity.ok(Map.of("success", true, "message", "Token is valid."));
+    }
+
+    /**
      * 현재 로그인된 사용자 정보 조회하기 위한 메서드
      *
      * @author 이세형
@@ -147,6 +160,7 @@ public class UserController {
      */
     @GetMapping("/auth/me")
     public ResponseEntity<UserInfoDTO> getCurrentUser() {
+        log.debug("UserController에서 마이페이지에 접근했습니다.");
         String name = userService.getCurrentUserInfo().getName();
         log.debug("가져온 이름은"+ name+"입니다.");
         return ResponseEntity.ok(userService.getCurrentUserInfo());
